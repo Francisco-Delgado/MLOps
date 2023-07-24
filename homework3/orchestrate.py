@@ -7,9 +7,12 @@ import sklearn
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.metrics import mean_squared_error
 import mlflow
+import os
 import xgboost as xgb
 from prefect import flow, task
-
+from prefect.artifacts import create_markdown_artifact
+from prefect.context import get_run_context
+from prefect_email import EmailServerCredentials, email_send_message
 
 @task(retries=3, retry_delay_seconds=2)
 def read_data(filename: str) -> pd.DataFrame:
@@ -99,6 +102,14 @@ def train_best_model(
         y_pred = booster.predict(valid)
         rmse = mean_squared_error(y_val, y_pred, squared=False)
         mlflow.log_metric("rmse", rmse)
+        
+        result_markdown = \
+        f"""
+            # SUMMARY 
+            Resulted in a rmse of : {rmse}
+        """
+        
+        create_markdown_artifact(key='run-summary', markdown=result_markdown)
 
         pathlib.Path("models").mkdir(exist_ok=True)
         with open("models/preprocessor.b", "wb") as f_out:
@@ -111,8 +122,8 @@ def train_best_model(
 
 @flow
 def main_flow(
-    train_path: str = "./data/green_tripdata_2021-01.parquet",
-    val_path: str = "./data/green_tripdata_2021-02.parquet",
+    train_path: str = "./data/green_tripdata_2022-01.parquet",
+    val_path: str = "./data/green_tripdata_2022-02.parquet",
 ) -> None:
     """The main training pipeline"""
 
@@ -129,6 +140,14 @@ def main_flow(
 
     # Train
     train_best_model(X_train, X_val, y_train, y_val, dv)
+            
+    #email_server_credentials = EmailServerCredentials.load("email-notifcations")
+    #email_send_message(
+    #    email_server_credentials=email_server_credentials,
+    #    subject=f"Flow run ended",
+    #    msg=f"Flow run ended.",
+    #    email_to="",
+    #)
 
 
 if __name__ == "__main__":
